@@ -113,8 +113,8 @@ export default function App() {
     formData.append("file", selectedFile);
 
     const endpoint = isPDF
-      ? "http://localhost:5001/api/parse-pdf"
-      : "http://localhost:5001/api/parse-ppt";
+      ? "https://ai-quiz-backend-83u4.onrender.com/api/parse-pdf"
+      : "https://ai-quiz-backend-83u4.onrender.com/api/parse-ppt";
 
     try {
       const res = await fetch(endpoint, {
@@ -130,7 +130,7 @@ export default function App() {
         setError(data.error || "Failed to parse the uploaded file.");
       }
     } catch (err) {
-      setError("Could not connect to the backend server. Make sure it is running on port 5001.");
+      setError("Could not connect to the live production backend server.");
     } finally {
       setLoading(false);
     }
@@ -145,7 +145,7 @@ export default function App() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('http://localhost:5001/api/generate-quiz', {
+      const res = await fetch('https://ai-quiz-backend-83u4.onrender.com/api/generate-quiz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

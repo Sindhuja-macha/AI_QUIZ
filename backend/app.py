@@ -7,8 +7,6 @@ from pptx import Presentation
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, Field
-from typing import List, Dict
 
 # --------------------------------------------------
 # Load Environment Variables
@@ -34,18 +32,32 @@ else:
 client = genai.Client(api_key=gemini_key)
 
 # --------------------------------------------------
-# Pydantic Schema for Reliable JSON Output
+# Clean, Fixed Raw Schema Matching Frontend
 # --------------------------------------------------
-class QuestionModel(BaseModel):
-    id: int
-    topic: str = Field(description="The core subject area or category of this question (e.g., 'Prompt Engineering', 'Database Management', 'AgTech')")
-    question: str
-    options: Dict[str, str] = Field(description="Dictionary containing exactly 4 keys: A, B, C, D")
-    correctAnswer: str = Field(description="Must match exactly one string key from options: 'A', 'B', 'C', or 'D'")
-    explanation: str
-
-class QuizModel(BaseModel):
-    questions: List[QuestionModel]
+quiz_schema = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "id": {"type": "INTEGER"},
+            "topic": {"type": "STRING"},
+            "question": {"type": "STRING"},
+            "options": {
+                "type": "OBJECT",
+                "properties": {
+                    "A": {"type": "STRING"},
+                    "B": {"type": "STRING"},
+                    "C": {"type": "STRING"},
+                    "D": {"type": "STRING"}
+                },
+                "required": ["A", "B", "C", "D"]
+            },
+            "correctAnswer": {"type": "STRING"},
+            "explanation": {"type": "STRING"}
+        },
+        "required": ["id", "topic", "question", "options", "correctAnswer", "explanation"]
+    }
+}
 
 # --------------------------------------------------
 # PPT Parser API
@@ -118,8 +130,10 @@ def parse_pdf():
 # --------------------------------------------------
 @app.route("/api/generate-quiz", methods=["POST"])
 def generate_quiz():
+    print("✅ Fixed generate_quiz API called")
     data = request.json or {}
-    text_content = data.get("text")
+
+    text_content = data.get("text", "")
     count = data.get("count", 10)
     difficulty = data.get("difficulty", "Medium")
 
@@ -127,51 +141,39 @@ def generate_quiz():
         return jsonify({"error": "No study material found."}), 400
 
     prompt = f"""
-You are an expert educator. Your task is to analyze the provided study material and generate a structured quiz assessment.
+You are an expert educator.
+Analyze the study material and generate EXACTLY {count} multiple-choice questions based on it.
+Difficulty Level to target: {difficulty}
 
-Generate exactly {count} multiple choice questions.
-Target Difficulty Level: {difficulty}
-
-Core Requirements:
-1. Thoroughly parse the text and extract precise technical classifications or logical sub-topics for the 'topic' field.
-2. Ensure realistic distractor options that test core semantic understanding.
-3. Use conceptual and scenario-based questions over surface-level verbatim lookups.
-4. Provide highly informative summaries in the 'explanation' property that act as mini learning items.
-
-Study Material Context:
+Study Material:
 {text_content}
 """
 
     try:
-        # Enforce structural integrity via Google GenAI type settings
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
+                temperature=0.3,
                 response_mime_type="application/json",
-                response_schema=QuizModel,
-                temperature=0.3
+                response_schema=quiz_schema,
             ),
         )
 
-        # The SDK guarantees that response.text strictly maps to our QuizModel definition
-        parsed_response = json.loads(response.text)
-        return jsonify(parsed_response.get("questions", []))
+        # Parse output directly into a clean list
+        quiz_list = json.loads(response.text)
+        return jsonify(quiz_list)
 
+    except json.JSONDecodeError:
+        return jsonify({"error": "Gemini returned invalid JSON structure."}), 500
     except Exception as e:
-        return jsonify({"error": f"Failed to generate structured quiz content: {str(e)}"}), 500
+        return jsonify({"error": f"Failed to generate structured quiz: {str(e)}"}), 500
 
-# --------------------------------------------------
-# Production/Development Execution Flow
-# --------------------------------------------------
 if __name__ == "__main__":
-    # Determine execution context safely
     is_debug = os.getenv("FLASK_ENV") == "development" or os.getenv("DEBUG", "False").lower() in ("true", "1")
     port = int(os.getenv("PORT", 5001))
     
     print(f"\n🚀 Starting Flask Backend Engine...")
-    print(f"📍 Mode: {'Development' if is_debug else 'Production'}")
     print(f"🔗 Target: http://localhost:{port}")
     
-    # use_reloader=False stops the infinite file system checking loops on Windows instances
     app.run(host="0.0.0.0", port=port, debug=is_debug, use_reloader=False)
